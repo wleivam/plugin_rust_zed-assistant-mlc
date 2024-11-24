@@ -1,0 +1,12 @@
+diff --git a/crates/ui/src/components/icon.rs b/crates/ui/src/components/icon.rs
+index 161f4c60b7..dd62009e39 100644
+--- a/crates/ui/src/components/icon.rs
++++ b/crates/ui/src/components/icon.rs
+@@ -116,6 +116,7 @@ pub enum IconName {
+     AiAnthropic,
+     AiAnthropicHosted,
+     AiGoogle,
++    AiMlcLlm,
+     AiOllama,
+     AiOpenAi,
+     AiZed,

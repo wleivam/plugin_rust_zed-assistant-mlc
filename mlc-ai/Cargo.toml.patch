@@ -1,0 +1,20 @@
+diff --git a/Cargo.toml b/Cargo.toml
+index 2e5111e2ff..de46ea556b 100644
+--- a/Cargo.toml
++++ b/Cargo.toml
+@@ -70,6 +70,7 @@ members = [
+     "crates/markdown_preview",
+     "crates/media",
+     "crates/menu",
++    "crates/mlc_llm",
+     "crates/multi_buffer",
+     "crates/node_runtime",
+     "crates/notifications",
+@@ -249,6 +250,7 @@ markdown = { path = "crates/markdown" }
+ markdown_preview = { path = "crates/markdown_preview" }
+ media = { path = "crates/media" }
+ menu = { path = "crates/menu" }
++mlc_llm = { path = "crates/mlc_llm" }
+ multi_buffer = { path = "crates/multi_buffer" }
+ node_runtime = { path = "crates/node_runtime" }
+ notifications = { path = "crates/notifications" }

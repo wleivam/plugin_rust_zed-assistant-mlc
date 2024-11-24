@@ -1,0 +1,31 @@
+diff --git a/docs/src/assistant/configuration.md b/docs/src/assistant/configuration.md
+index 1be96491f4..f881fa75e3 100644
+--- a/docs/src/assistant/configuration.md
++++ b/docs/src/assistant/configuration.md
+@@ -8,6 +8,7 @@ The following providers are supported:
+ - [Anthropic](#anthropic)
+ - [GitHub Copilot Chat](#github-copilot-chat) [^1]
+ - [Google AI](#google-ai) [^1]
++- [MLC Engine](#mlc-llm)
+ - [Ollama](#ollama)
+ - [OpenAI](#openai)
+ 
+@@ -106,6 +107,18 @@ By default Zed will use `stable` versions of models, but you can use specific ve
+ 
+ Custom models will be listed in the model dropdown in the assistant panel.
+ 
++### MLC Engine {#mlc-llm}
++
++This is the logic order to deploy the engine:
++
++1. [Install GPU Drivers and SDKs](https://llm.mlc.ai/docs/install/gpu.html).
++2. [Install Python v3.11](https://www.python.org/downloads/release/python-31110/). It's necessary this version specifically.
++3. [Install PyTorch for your GPU](https://pytorch.org/get-started/locally/). It depends on driver (Cuda, ROCm, Vulkan, OpenCL, Orange Pi 5).
++4. [Install TVM Unity Compiler](https://llm.mlc.ai/docs/install/tvm.html). The official Apache version doesn't work.
++5. [Install MLC LLM Python Package](https://llm.mlc.ai/docs/install/mlc_llm.html)
++
++It's possible use [Miniconda](https://docs.anaconda.com/miniconda/) for all the steps, but may present problems in the llm execution.
++
+ ### Ollama {#ollama}
+ 
+ Download and install Ollama from [ollama.com/download](https://ollama.com/download) (Linux or macOS) and ensure it's running with `ollama --version`.

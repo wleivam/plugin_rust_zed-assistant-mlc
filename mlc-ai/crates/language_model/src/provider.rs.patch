@@ -1,0 +1,11 @@
+diff --git a/crates/language_model/src/provider.rs b/crates/language_model/src/provider.rs
+index d2d162b75e..3bc63c25a1 100644
+--- a/crates/language_model/src/provider.rs
++++ b/crates/language_model/src/provider.rs
+@@ -4,5 +4,6 @@ pub mod copilot_chat;
+ #[cfg(any(test, feature = "test-support"))]
+ pub mod fake;
+ pub mod google;
++pub mod mlc_llm;
+ pub mod ollama;
+ pub mod open_ai;

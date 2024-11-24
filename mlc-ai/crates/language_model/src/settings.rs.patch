@@ -1,0 +1,54 @@
+diff --git a/crates/language_model/src/settings.rs b/crates/language_model/src/settings.rs
+index 2bf8deb042..195d5a456d 100644
+--- a/crates/language_model/src/settings.rs
++++ b/crates/language_model/src/settings.rs
+@@ -14,6 +14,7 @@ use crate::{
+         cloud::{self, ZedDotDevSettings},
+         copilot_chat::CopilotChatSettings,
+         google::GoogleSettings,
++        mlc_llm::MlcLlmSettings,
+         ollama::OllamaSettings,
+         open_ai::OpenAiSettings,
+     },
+@@ -61,6 +62,7 @@ pub struct AllLanguageModelSettings {
+     pub zed_dot_dev: ZedDotDevSettings,
+     pub google: GoogleSettings,
+     pub copilot_chat: CopilotChatSettings,
++    pub mlc_llm: MlcLlmSettings,
+ }
+ 
+ #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+@@ -72,6 +74,7 @@ pub struct AllLanguageModelSettingsContent {
+     pub zed_dot_dev: Option<ZedDotDevSettingsContent>,
+     pub google: Option<GoogleSettingsContent>,
+     pub copilot_chat: Option<CopilotChatSettingsContent>,
++    pub mlc_llm: Option<MlcLlmSettingsContent>,
+ }
+ 
+ #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+@@ -241,6 +244,12 @@ pub struct CopilotChatSettingsContent {
+     low_speed_timeout_in_seconds: Option<u64>,
+ }
+ 
++#[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
++pub struct MlcLlmSettingsContent {
++    pub api_url: Option<String>,
++    pub available_models: Option<Vec<provider::mlc_llm::AvailableModel>>,
++}
++
+ impl settings::Settings for AllLanguageModelSettings {
+     const KEY: Option<&'static str> = Some("language_models");
+ 
+@@ -373,6 +382,12 @@ impl settings::Settings for AllLanguageModelSettings {
+                 settings.copilot_chat.low_speed_timeout =
+                     Some(Duration::from_secs(low_speed_timeout));
+             }
++
++            // MLC-LLM
++            merge(
++                &mut settings.mlc_llm.api_url,
++                value.mlc_llm.as_ref().and_then(|s| s.api_url.clone()),
++            );
+         }
+ 
+         Ok(settings)

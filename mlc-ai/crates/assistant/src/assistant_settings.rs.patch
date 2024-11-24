@@ -1,0 +1,12 @@
+diff --git a/crates/assistant/src/assistant_settings.rs b/crates/assistant/src/assistant_settings.rs
+index a782f05d03..b22d1a54d7 100644
+--- a/crates/assistant/src/assistant_settings.rs
++++ b/crates/assistant/src/assistant_settings.rs
+@@ -421,6 +421,7 @@ fn providers_schema(_: &mut schemars::gen::SchemaGenerator) -> schemars::schema:
+             "openai".into(),
+             "zed.dev".into(),
+             "copilot_chat".into(),
++            "mlc_llm".into(),
+         ]),
+         ..Default::default()
+     }

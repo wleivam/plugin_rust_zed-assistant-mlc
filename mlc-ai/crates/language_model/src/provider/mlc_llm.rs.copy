@@ -1,0 +1,401 @@
+use anyhow::{anyhow, bail, Result};
+use futures::{future::BoxFuture, stream::BoxStream, FutureExt, StreamExt};
+use gpui::{AnyView, AppContext, AsyncAppContext, ModelContext, Subscription, Task};
+use http_client::HttpClient;
+use mlc_llm::{
+    get_models, stream_chat_completion, ChatCompletionMessage, ChatCompletionRequest, Model,
+};
+use schemars::JsonSchema;
+use serde::{Deserialize, Serialize};
+use settings::{Settings, SettingsStore};
+use std::{collections::BTreeMap, sync::Arc};
+use ui::prelude::*;
+use util::ResultExt;
+
+use crate::LanguageModelCompletionEvent;
+use crate::{
+    settings::AllLanguageModelSettings, LanguageModel, LanguageModelId, LanguageModelName,
+    LanguageModelProvider, LanguageModelProviderId, LanguageModelProviderName,
+    LanguageModelProviderState, LanguageModelRequest, RateLimiter,
+};
+
+const MLCLLM_REPOSITORY_URL: &str = "https://github.com/mlc-ai/mlc-llm";
+const MLCLLM_SITE_URL: &str = "https://llm.mlc.ai/";
+
+const PROVIDER_ID: &str = "mlc_llm";
+const PROVIDER_NAME: &str = "MLC-LLM";
+
+#[derive(Clone, Debug, PartialEq, Serialize, Deserialize, JsonSchema)]
+pub struct AvailableModel {
+    pub created: u64,
+    pub id: String,
+    pub object: String,
+    pub owned_by: String,
+}
+
+#[derive(Default, Debug, Clone, PartialEq)]
+pub struct MlcLlmSettings {
+    pub available_models: Vec<AvailableModel>,
+    pub api_url: String,
+}
+
+pub struct MlcLlmLanguageModelProvider {
+    http_client: Arc<dyn HttpClient>,
+    state: gpui::Model<State>,
+}
+
+pub struct State {
+    available_models: Vec<Model>,
+    fetch_model_task: Option<Task<Result<()>>>,
+    http_client: Arc<dyn HttpClient>,
+    _subscription: Subscription,
+}
+
+impl State {
+    fn has_model(&self) -> bool {
+        !self.available_models.is_empty()
+    }
+
+    fn fetch_models(&mut self, cx: &mut ModelContext<Self>) -> Task<Result<()>> {
+        let settings = &AllLanguageModelSettings::get_global(cx).mlc_llm;
+        let http_client = self.http_client.clone();
+        let api_url = settings.api_url.clone();
+        cx.spawn(|this, mut cx| async move {
+            let models: Vec<Model> = get_models(http_client.as_ref(), &api_url).await?;
+
+            this.update(&mut cx, |this, cx| {
+                this.available_models = models;
+                cx.notify();
+            })
+        })
+    }
+
+    fn restart_fetch_models_task(&mut self, cx: &mut ModelContext<Self>) {
+        let task = self.fetch_models(cx);
+        self.fetch_model_task.replace(task);
+    }
+
+    fn is_up(&mut self, cx: &mut ModelContext<Self>) -> Task<Result<()>> {
+        if self.has_model() {
+            Task::ready(Ok(()))
+        } else {
+            self.fetch_models(cx)
+        }
+    }
+}
+
+impl MlcLlmLanguageModelProvider {
+    pub fn new(http_client: Arc<dyn HttpClient>, cx: &mut AppContext) -> Self {
+        let this = Self {
+            http_client: http_client.clone(),
+            state: cx.new_model(|cx| {
+                let subscription = cx.observe_global::<SettingsStore>({
+                    let mut settings = AllLanguageModelSettings::get_global(cx).mlc_llm.clone();
+                    move |this: &mut State, cx| {
+                        let new_settings = &AllLanguageModelSettings::get_global(cx).mlc_llm;
+                        if &settings != new_settings {
+                            settings = new_settings.clone();
+                            this.restart_fetch_models_task(cx);
+                            cx.notify();
+                        }
+                    }
+                });
+
+                State {
+                    http_client,
+                    available_models: Default::default(),
+                    fetch_model_task: None,
+                    _subscription: subscription,
+                }
+            }),
+        };
+        this.state
+            .update(cx, |state, cx| state.restart_fetch_models_task(cx));
+        this
+    }
+}
+
+impl LanguageModelProvider for MlcLlmLanguageModelProvider {
+    fn id(&self) -> LanguageModelProviderId {
+        LanguageModelProviderId(PROVIDER_ID.into())
+    }
+
+    fn name(&self) -> LanguageModelProviderName {
+        LanguageModelProviderName(PROVIDER_NAME.into())
+    }
+
+    fn icon(&self) -> IconName {
+        IconName::AiMlcLlm
+    }
+
+    fn provided_models(&self, cx: &AppContext) -> Vec<Arc<dyn LanguageModel>> {
+        let mut models: BTreeMap<String, Model> = BTreeMap::default();
+
+        // Add models from the MLC-LLM API
+        for model in self.state.read(cx).available_models.iter() {
+            models.insert(model.id.clone(), model.clone());
+        }
+
+        // Override with available models from settings
+        for model in AllLanguageModelSettings::get_global(cx)
+            .mlc_llm
+            .available_models
+            .iter()
+        {
+            models.insert(
+                model.id.clone(),
+                Model {
+                    created: model.created.clone(),
+                    id: model.id.clone(),
+                    object: model.object.clone(),
+                    owned_by: model.owned_by.clone(),
+                },
+            );
+        }
+
+        models
+            .into_values()
+            .map(|model| {
+                Arc::new(MlcLlmLanguageModel {
+                    id: LanguageModelId::from(model.id.clone()),
+                    model: model.clone(),
+                    http_client: self.http_client.clone(),
+                    request_limiter: RateLimiter::new(4),
+                }) as Arc<dyn LanguageModel>
+            })
+            .collect()
+    }
+
+    fn is_authenticated(&self, cx: &AppContext) -> bool {
+        self.state.read(cx).has_model()
+    }
+
+    fn authenticate(&self, cx: &mut AppContext) -> Task<Result<()>> {
+        self.state.update(cx, |state, cx| state.is_up(cx))
+    }
+
+    fn configuration_view(&self, cx: &mut WindowContext) -> AnyView {
+        let state = self.state.clone();
+        cx.new_view(|cx| ConfigurationView::new(state, cx)).into()
+    }
+
+    fn reset_credentials(&self, cx: &mut AppContext) -> Task<Result<()>> {
+        self.state.update(cx, |state, cx| state.fetch_models(cx))
+    }
+}
+
+impl LanguageModelProviderState for MlcLlmLanguageModelProvider {
+    type ObservableEntity = State;
+
+    fn observable_entity(&self) -> Option<gpui::Model<Self::ObservableEntity>> {
+        Some(self.state.clone())
+    }
+}
+
+pub struct MlcLlmLanguageModel {
+    id: LanguageModelId,
+    model: Model,
+    http_client: Arc<dyn HttpClient>,
+    request_limiter: RateLimiter,
+}
+
+impl MlcLlmLanguageModel {
+    fn to_mlc_llm_request(&self, request: LanguageModelRequest) -> ChatCompletionRequest {
+        ChatCompletionRequest {
+            model: self.model.id.clone(),
+            messages: request
+                .messages
+                .into_iter()
+                .map(|message| ChatCompletionMessage {
+                    role: mlc_llm::Role::from(message.role),
+                    content: message.string_contents(),
+                })
+                .collect(),
+            stream: true,
+        }
+    }
+}
+
+impl LanguageModel for MlcLlmLanguageModel {
+    fn id(&self) -> LanguageModelId {
+        self.id.clone()
+    }
+
+    fn name(&self) -> LanguageModelName {
+        LanguageModelName::from(self.model.name())
+    }
+
+    fn provider_id(&self) -> LanguageModelProviderId {
+        LanguageModelProviderId(PROVIDER_ID.into())
+    }
+
+    fn provider_name(&self) -> LanguageModelProviderName {
+        LanguageModelProviderName(PROVIDER_NAME.into())
+    }
+
+    fn telemetry_id(&self) -> String {
+        format!("mlc_llm/{}", self.model.name())
+    }
+
+    fn max_token_count(&self) -> usize {
+        1
+    }
+
+    fn count_tokens(
+        &self,
+        _request: LanguageModelRequest,
+        _cx: &AppContext,
+    ) -> BoxFuture<'static, Result<usize>> {
+        async move { Ok(1) }.boxed()
+    }
+
+    fn stream_completion(
+        &self,
+        request: LanguageModelRequest,
+        cx: &AsyncAppContext,
+    ) -> BoxFuture<'static, Result<BoxStream<'static, Result<LanguageModelCompletionEvent>>>> {
+        let request = self.to_mlc_llm_request(request);
+        let http_client = self.http_client.clone();
+        let Ok(api_url) = cx.update(|cx| {
+            let settings = &AllLanguageModelSettings::get_global(cx).mlc_llm;
+            settings.api_url.clone()
+        }) else {
+            return futures::future::ready(Err(anyhow!("App state dropped"))).boxed();
+        };
+
+        let future = self.request_limiter.stream(async move {
+            let response = stream_chat_completion(http_client.as_ref(), &api_url, request).await?;
+            let stream = response
+                .filter_map(|response| async move {
+                    match response {
+                        Ok(mut response) => Some(Ok(response.choices.pop()?.delta.content)),
+                        Err(error) => Some(Err(error)),
+                    }
+                })
+                .boxed();
+            Ok(stream)
+        });
+
+        async move {
+            Ok(future
+                .await?
+                .map(|result| result.map(LanguageModelCompletionEvent::Text))
+                .boxed())
+        }
+        .boxed()
+    }
+
+    fn use_any_tool(
+        &self,
+        _request: LanguageModelRequest,
+        _tool_name: String,
+        _tool_description: String,
+        _schema: serde_json::Value,
+        _cx: &AsyncAppContext,
+    ) -> BoxFuture<'static, Result<BoxStream<'static, Result<String>>>> {
+        self.request_limiter
+            .run(async move {
+                bail!("MLC-LLM tools not implemented yet");
+            })
+            .boxed()
+    }
+}
+
+struct ConfigurationView {
+    state: gpui::Model<State>,
+    fetch_model_task: Option<Task<()>>,
+}
+
+impl ConfigurationView {
+    pub fn new(state: gpui::Model<State>, cx: &mut ViewContext<Self>) -> Self {
+        let fetch_model_task = Some(cx.spawn({
+            let state = state.clone();
+            |this, mut cx| async move {
+                if let Some(task) = state.update(&mut cx, |state, cx| state.is_up(cx)).log_err() {
+                    task.await.log_err();
+                }
+                this.update(&mut cx, |this, cx| {
+                    this.fetch_model_task = None;
+                    cx.notify();
+                })
+                .log_err();
+            }
+        }));
+
+        Self {
+            state,
+            fetch_model_task,
+        }
+    }
+
+    fn reset_connection(&self, cx: &mut WindowContext) {
+        self.state
+            .update(cx, |state, cx| state.fetch_models(cx))
+            .detach_and_log_err(cx);
+    }
+}
+
+impl Render for ConfigurationView {
+    fn render(&mut self, cx: &mut ViewContext<Self>) -> impl IntoElement {
+        let mlc_llm_intro = "MLC LLM is a machine learning compiler and high-performance deployment engine for large language models.";
+        let mlc_llm_reqs = "The mission of this project is to enable everyone to develop, optimize, and deploy AI models natively on everyone’s platforms.";
+
+        let mut inline_code_bg = cx.theme().colors().editor_background;
+        inline_code_bg.fade_out(0.5);
+
+        if self.fetch_model_task.is_some() {
+            div().child(Label::new("Loading model...")).into_any()
+        } else {
+            v_flex()
+                .size_full()
+                .gap_3()
+                .child(
+                    v_flex()
+                        .size_full()
+                        .gap_2()
+                        .p_1()
+                        .child(Label::new(mlc_llm_intro))
+                        .child(Label::new(mlc_llm_reqs)),
+                )
+                .child(
+                    h_flex()
+                        .w_full()
+                        .gap_2()
+                        .pt_2()
+                        .justify_between()
+                        .child(
+                            h_flex()
+                                .w_full()
+                                .gap_2()
+                                .p_0()
+                                .child(
+                                    Button::new("mlc_llm-repository", "GitHub Repository")
+                                        .style(ButtonStyle::Subtle)
+                                        .icon(IconName::ExternalLink)
+                                        .icon_size(IconSize::XSmall)
+                                        .icon_color(Color::Muted)
+                                        .on_click(move |_, cx| cx.open_url(MLCLLM_REPOSITORY_URL))
+                                        .into_any_element(),
+                                )
+                                .child(
+                                    Button::new("mlc_llm-site", "Official Site")
+                                        .style(ButtonStyle::Subtle)
+                                        .icon(IconName::ExternalLink)
+                                        .icon_size(IconSize::XSmall)
+                                        .icon_color(Color::Muted)
+                                        .on_click(move |_, cx| cx.open_url(MLCLLM_SITE_URL))
+                                        .into_any_element(),
+                                ),
+                        )
+                        .child(
+                            Button::new("mlc_llm-fetch_model", "Get Model")
+                                .icon_position(IconPosition::Start)
+                                .icon(IconName::ArrowCircle)
+                                .on_click(cx.listener(move |this, _, cx| this.reset_connection(cx)))
+                                .into_any_element(),
+                        ),
+                )
+                .into_any()
+        }
+    }
+}

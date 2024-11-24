@@ -1,0 +1,18 @@
+diff --git a/crates/language_model/src/role.rs b/crates/language_model/src/role.rs
+index 2205ac52dc..f1b9240460 100644
+--- a/crates/language_model/src/role.rs
++++ b/crates/language_model/src/role.rs
+@@ -65,3 +65,13 @@ impl From<Role> for open_ai::Role {
+         }
+     }
+ }
++
++impl From<Role> for mlc_llm::Role {
++    fn from(val: Role) -> Self {
++        match val {
++            Role::Assistant => mlc_llm::Role::Assistant,
++            Role::System => mlc_llm::Role::System,
++            Role::User => mlc_llm::Role::User,
++        }
++    }
++}

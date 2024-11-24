@@ -1,0 +1,216 @@
+use anyhow::{anyhow, Context, Result};
+use futures::{io::BufReader, stream::BoxStream, AsyncBufReadExt, AsyncReadExt, StreamExt};
+use http_client::{AsyncBody, HttpClient, Method, Request as HttpRequest};
+use serde::{Deserialize, Serialize};
+use std::convert::TryFrom;
+
+pub const MLCLLM_API_URL: &str = "http://localhost:8080";
+
+#[cfg_attr(feature = "schemars", derive(schemars::JsonSchema))]
+#[derive(Clone, Debug, Default, Serialize, Deserialize, PartialEq)]
+pub struct Model {
+    pub created: u64,
+    pub id: String,
+    pub object: String,
+    pub owned_by: String,
+}
+
+impl Model {
+    pub fn new(created: &u64, id: &str, object: &str, owned_by: &str) -> Self {
+        Self {
+            created: created.to_owned(),
+            id: id.to_owned(),
+            object: object.to_owned(),
+            owned_by: owned_by.to_owned(),
+        }
+    }
+
+    pub fn name(&self) -> String {
+        let mut model_name: String = self
+            .id
+            .split_once("//")
+            .unwrap()
+            .1
+            .split_once("/")
+            .unwrap()
+            .0
+            .to_string();
+        model_name.push_str("/");
+        model_name.push_str(
+            self.id
+                .split_once("//")
+                .unwrap()
+                .1
+                .split_once("/")
+                .unwrap()
+                .1
+                .split("-")
+                .enumerate()
+                .filter(|&(index, _)| index < 4)
+                .map(|(_, value)| value)
+                .collect::<Vec<&str>>()
+                .join("-")
+                .as_str(),
+        );
+        model_name
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ModelsResponse {
+    pub data: Vec<Model>,
+    pub object: String,
+}
+
+pub async fn get_models(client: &dyn HttpClient, api_url: &str) -> Result<Vec<Model>> {
+    let uri: String;
+    if !api_url.is_empty() {
+        uri = format!("{api_url}/models");
+    } else {
+        uri = MLCLLM_API_URL.to_string();
+    }
+
+    let request_builder = HttpRequest::builder()
+        .method(Method::GET)
+        .uri(uri)
+        .header("Content-Type", "application/json");
+
+    let request = request_builder.body(AsyncBody::default())?;
+
+    let mut response = client.send(request).await?;
+
+    let mut body = String::new();
+    response.body_mut().read_to_string(&mut body).await?;
+
+    if response.status().is_success() {
+        let response: ModelsResponse =
+            serde_json::from_str(&body).context("Unable to parse MLC-LLM models list")?;
+        Ok(response.data)
+    } else {
+        Err(anyhow!(
+            "Failed to connect to MLC-LLM API: {} {}",
+            response.status(),
+            body,
+        ))
+    }
+}
+
+#[derive(Clone, Copy, Serialize, Deserialize, Debug, Eq, PartialEq)]
+#[serde(rename_all = "lowercase")]
+pub enum Role {
+    Assistant,
+    System,
+    Tool,
+    User,
+}
+
+impl TryFrom<String> for Role {
+    type Error = anyhow::Error;
+
+    fn try_from(value: String) -> Result<Self> {
+        match value.as_str() {
+            "assistant" => Ok(Self::Assistant),
+            "system" => Ok(Self::System),
+            "tool" => Ok(Self::Tool),
+            "user" => Ok(Self::User),
+            _ => Err(anyhow!("invalid role '{value}'")),
+        }
+    }
+}
+
+impl From<Role> for String {
+    fn from(val: Role) -> Self {
+        match val {
+            Role::Assistant => "assistant".to_owned(),
+            Role::System => "system".to_owned(),
+            Role::Tool => "tool".to_owned(),
+            Role::User => "user".to_owned(),
+        }
+    }
+}
+
+#[derive(Serialize, Deserialize, Debug, Eq, PartialEq)]
+pub struct ChatCompletionMessage {
+    pub content: String,
+    pub role: Role,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChatCompletionRequest {
+    pub messages: Vec<ChatCompletionMessage>,
+    pub model: String,
+    pub stream: bool,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChatCompletionStreamResponseChoice {
+    pub delta: ChatCompletionMessage,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+pub struct ChatCompletionStreamResponse {
+    pub choices: Vec<ChatCompletionStreamResponseChoice>,
+}
+
+#[derive(Serialize, Deserialize, Debug)]
+#[serde(untagged)]
+pub enum ChatCompletionStreamResult {
+    Err { error: String },
+    Ok(ChatCompletionStreamResponse),
+}
+
+pub async fn stream_chat_completion(
+    client: &dyn HttpClient,
+    api_url: &str,
+    request: ChatCompletionRequest,
+) -> Result<BoxStream<'static, Result<ChatCompletionStreamResponse>>> {
+    let uri: String;
+    if !api_url.is_empty() {
+        uri = format!("{api_url}/chat/completions");
+    } else {
+        uri = MLCLLM_API_URL.to_string();
+    }
+
+    let request_builder = HttpRequest::builder()
+        .method(Method::POST)
+        .uri(uri)
+        .header("Content-Type", "application/json");
+
+    let request = request_builder.body(AsyncBody::from(serde_json::to_string(&request)?))?;
+    let mut response = client.send(request).await?;
+
+    if response.status().is_success() {
+        let reader = BufReader::new(response.into_body());
+        Ok(reader
+            .lines()
+            .filter_map(|line| async move {
+                match line {
+                    Ok(line) => {
+                        let line = line.strip_prefix("data: ")?;
+                        if line.contains("[DONE]") {
+                            None
+                        } else {
+                            match serde_json::from_str(line) {
+                                Ok(ChatCompletionStreamResult::Ok(response)) => Some(Ok(response)),
+                                Ok(ChatCompletionStreamResult::Err { error }) => {
+                                    Some(Err(anyhow!(error)))
+                                }
+                                Err(error) => Some(Err(anyhow!(error))),
+                            }
+                        }
+                    }
+                    Err(error) => Some(Err(anyhow!(error))),
+                }
+            })
+            .boxed())
+    } else {
+        let mut body = String::new();
+        response.body_mut().read_to_string(&mut body).await?;
+
+        Err(anyhow!(
+            "Failed to connect to MLC-LLM API: {} {}",
+            response.status(),
+            body,
+        ))
+    }
+}
