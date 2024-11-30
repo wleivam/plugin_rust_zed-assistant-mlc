@@ -1,5 +1,5 @@
 diff --git a/crates/language_model/src/settings.rs b/crates/language_model/src/settings.rs
-index 2bf8deb042..195d5a456d 100644
+index 275fcf0417..d074ae6548 100644
 --- a/crates/language_model/src/settings.rs
 +++ b/crates/language_model/src/settings.rs
 @@ -14,6 +14,7 @@ use crate::{
@@ -26,9 +26,9 @@ index 2bf8deb042..195d5a456d 100644
  }
  
  #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
-@@ -241,6 +244,12 @@ pub struct CopilotChatSettingsContent {
-     low_speed_timeout_in_seconds: Option<u64>,
- }
+@@ -230,6 +233,12 @@ pub struct ZedDotDevSettingsContent {
+ #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
+ pub struct CopilotChatSettingsContent {}
  
 +#[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
 +pub struct MlcLlmSettingsContent {
@@ -39,10 +39,10 @@ index 2bf8deb042..195d5a456d 100644
  impl settings::Settings for AllLanguageModelSettings {
      const KEY: Option<&'static str> = Some("language_models");
  
-@@ -373,6 +382,12 @@ impl settings::Settings for AllLanguageModelSettings {
-                 settings.copilot_chat.low_speed_timeout =
-                     Some(Duration::from_secs(low_speed_timeout));
-             }
+@@ -314,6 +323,12 @@ impl settings::Settings for AllLanguageModelSettings {
+                     .as_ref()
+                     .and_then(|s| s.available_models.clone()),
+             );
 +
 +            // MLC-LLM
 +            merge(
