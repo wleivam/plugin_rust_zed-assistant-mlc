@@ -1,14 +1,14 @@
 diff --git a/assets/settings/default.json b/assets/settings/default.json
-index 767a92cf22..14b8ce6b02 100644
+index 3757dfe119..9f1445befa 100644
 --- a/assets/settings/default.json
 +++ b/assets/settings/default.json
-@@ -1060,6 +1060,9 @@
-       "version": "1",
-       "api_url": "https://api.openai.com/v1",
-       "low_speed_timeout_in_seconds": 600
-+    },
+@@ -1064,6 +1064,9 @@
+     "google": {
+       "api_url": "https://generativelanguage.googleapis.com"
+     },
 +    "mlc_llm": {
 +      "api_url": "http://localhost:8080/v1"
-     }
-   },
-   // Zed's Prettier integration settings.
++    },
+     "ollama": {
+       "api_url": "http://localhost:11434"
+     },

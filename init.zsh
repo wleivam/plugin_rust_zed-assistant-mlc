@@ -11,6 +11,7 @@ then
     cd $dir_repository
     if [ $tag_version != $(git describe --exact-match --tags) ]
     then
+        git pull
         git reset --hard
         git checkout tags/$tag_version
     fi
