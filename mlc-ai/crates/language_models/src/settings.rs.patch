@@ -1,16 +1,16 @@
-diff --git a/crates/language_model/src/settings.rs b/crates/language_model/src/settings.rs
-index 275fcf0417..d074ae6548 100644
---- a/crates/language_model/src/settings.rs
-+++ b/crates/language_model/src/settings.rs
-@@ -14,6 +14,7 @@ use crate::{
-         cloud::{self, ZedDotDevSettings},
-         copilot_chat::CopilotChatSettings,
-         google::GoogleSettings,
-+        mlc_llm::MlcLlmSettings,
-         ollama::OllamaSettings,
-         open_ai::OpenAiSettings,
-     },
-@@ -61,6 +62,7 @@ pub struct AllLanguageModelSettings {
+diff --git a/crates/language_models/src/settings.rs b/crates/language_models/src/settings.rs
+index f6602427cb..77be103f82 100644
+--- a/crates/language_models/src/settings.rs
++++ b/crates/language_models/src/settings.rs
+@@ -14,6 +14,7 @@ use crate::provider::{
+     cloud::{self, ZedDotDevSettings},
+     copilot_chat::CopilotChatSettings,
+     google::GoogleSettings,
++    mlc_llm::MlcLlmSettings,
+     ollama::OllamaSettings,
+     open_ai::OpenAiSettings,
+ };
+@@ -59,6 +60,7 @@ pub struct AllLanguageModelSettings {
      pub zed_dot_dev: ZedDotDevSettings,
      pub google: GoogleSettings,
      pub copilot_chat: CopilotChatSettings,
@@ -18,7 +18,7 @@ index 275fcf0417..d074ae6548 100644
  }
  
  #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
-@@ -72,6 +74,7 @@ pub struct AllLanguageModelSettingsContent {
+@@ -70,6 +72,7 @@ pub struct AllLanguageModelSettingsContent {
      pub zed_dot_dev: Option<ZedDotDevSettingsContent>,
      pub google: Option<GoogleSettingsContent>,
      pub copilot_chat: Option<CopilotChatSettingsContent>,
@@ -26,7 +26,7 @@ index 275fcf0417..d074ae6548 100644
  }
  
  #[derive(Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
-@@ -230,6 +233,12 @@ pub struct ZedDotDevSettingsContent {
+@@ -228,6 +231,12 @@ pub struct ZedDotDevSettingsContent {
  #[derive(Default, Clone, Debug, Serialize, Deserialize, PartialEq, JsonSchema)]
  pub struct CopilotChatSettingsContent {}
  
@@ -39,7 +39,7 @@ index 275fcf0417..d074ae6548 100644
  impl settings::Settings for AllLanguageModelSettings {
      const KEY: Option<&'static str> = Some("language_models");
  
-@@ -314,6 +323,12 @@ impl settings::Settings for AllLanguageModelSettings {
+@@ -312,6 +321,12 @@ impl settings::Settings for AllLanguageModelSettings {
                      .as_ref()
                      .and_then(|s| s.available_models.clone()),
              );

@@ -1,11 +1,11 @@
 diff --git a/crates/language_model/Cargo.toml b/crates/language_model/Cargo.toml
-index e88675bbae..e05da4393f 100644
+index 0fc54d509d..fbab2acf5c 100644
 --- a/crates/language_model/Cargo.toml
 +++ b/crates/language_model/Cargo.toml
-@@ -35,6 +35,7 @@ http_client.workspace = true
- inline_completion_button.workspace = true
+@@ -26,6 +26,7 @@ gpui.workspace = true
+ http_client.workspace = true
+ image.workspace = true
  log.workspace = true
- menu.workspace = true
 +mlc_llm = { workspace = true, features = ["schemars"] }
  ollama = { workspace = true, features = ["schemars"] }
  open_ai = { workspace = true, features = ["schemars"] }

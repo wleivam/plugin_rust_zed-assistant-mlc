@@ -2,8 +2,14 @@ use anyhow::{anyhow, bail, Result};
 use futures::{future::BoxFuture, stream::BoxStream, FutureExt, StreamExt};
 use gpui::{AnyView, AppContext, AsyncAppContext, ModelContext, Subscription, Task};
 use http_client::HttpClient;
+use language_model::LanguageModelCompletionEvent;
+use language_model::{
+    LanguageModel, LanguageModelId, LanguageModelName, LanguageModelProvider,
+    LanguageModelProviderId, LanguageModelProviderName, LanguageModelProviderState,
+    LanguageModelRequest, RateLimiter,
+};
 use mlc_llm::{
-    get_models, stream_chat_completion, ChatCompletionMessage, ChatCompletionRequest, Model,
+    get_models, stream_chat_completion, ChatCompletionMessage, ChatCompletionRequest, Model, Role,
 };
 use schemars::JsonSchema;
 use serde::{Deserialize, Serialize};
@@ -12,12 +18,7 @@ use std::{collections::BTreeMap, sync::Arc};
 use ui::prelude::*;
 use util::ResultExt;
 
-use crate::LanguageModelCompletionEvent;
-use crate::{
-    settings::AllLanguageModelSettings, LanguageModel, LanguageModelId, LanguageModelName,
-    LanguageModelProvider, LanguageModelProviderId, LanguageModelProviderName,
-    LanguageModelProviderState, LanguageModelRequest, RateLimiter,
-};
+use crate::AllLanguageModelSettings;
 
 const MLCLLM_REPOSITORY_URL: &str = "https://github.com/mlc-ai/mlc-llm";
 const MLCLLM_SITE_URL: &str = "https://llm.mlc.ai/";
@@ -207,7 +208,7 @@ impl MlcLlmLanguageModel {
                 .messages
                 .into_iter()
                 .map(|message| ChatCompletionMessage {
-                    role: mlc_llm::Role::from(message.role),
+                    role: Role::from(message.role),
                     content: message.string_contents(),
                 })
                 .collect(),
